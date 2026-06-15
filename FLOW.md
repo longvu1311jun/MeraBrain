@@ -1,112 +1,150 @@
-# Flow he thong Lark Bot AI
+# Flow hệ thống Lark Bot AI
 
-## Muc tieu
+## Mục tiêu
 
-Xay dung he thong cho phep nguoi dung nhan prompt qua Lark Bot. Backend tren Vercel nhan su kien tu Lark, lay data trong mot folder Lark Drive, dua prompt va data lien quan cho AI xu ly, luu trang thai vao Supabase, sau do tra ket qua ve lai chat Lark bang bot.
+Xây dựng hệ thống cho phép người dùng nhắn prompt qua Lark Bot. Backend chạy trên Vercel sẽ nhận sự kiện từ Lark, lấy dữ liệu trong một folder Lark Drive, đưa prompt và dữ liệu liên quan cho AI xử lý, lưu trạng thái vào Supabase, sau đó trả kết quả về lại chat Lark bằng bot.
 
-## Thanh phan chinh
+## Thành phần chính
 
 1. Lark Bot
-   - Nhan tin nhan tu nguoi dung trong chat.
-   - Gui event message den webhook backend.
-   - Gui ket qua xu ly ve chat qua API cua Lark.
+   - Nhận tin nhắn từ người dùng trong chat.
+   - Gửi event message đến webhook backend.
+   - Gửi kết quả xử lý về chat qua API của Lark.
 
 2. Vercel Backend
-   - Endpoint webhook nhan event tu Lark.
-   - Endpoint job processor xu ly tac vu AI.
-   - Module Lark API de lay token, doc Drive, tai file va gui message.
-   - Module AI de doc context, tao cau tra loi va format ket qua.
+   - Endpoint webhook nhận event từ Lark.
+   - Endpoint job processor xử lý tác vụ AI.
+   - Module Lark API để lấy token, đọc Drive, tải file và gửi message.
+   - Module AI để đọc context, tạo câu trả lời và format kết quả.
 
 3. Supabase
-   - Luu request/job, user, folder config, file metadata, log xu ly.
-   - Co the luu cache noi dung file/chunks/embedding neu can truy van nhieu tai lieu.
-   - Dung service role key o server only, khong dua vao client.
+   - Lưu request/job, user, folder config, file metadata và log xử lý.
+   - Có thể lưu cache nội dung file, chunks và embedding nếu cần truy vấn nhiều tài liệu.
+   - Dùng service role key ở server only, không đưa vào client.
 
 4. Lark Drive
-   - Folder nguon chua tai lieu can AI doc.
-   - Backend dung quyen cua app/bot de list file, download file va cap nhat cache.
+   - Folder nguồn chứa tài liệu cần AI đọc.
+   - Backend dùng quyền của app/bot để list file, download file và cập nhật cache.
 
 5. AI Provider
-   - Nhan prompt nguoi dung va context tai lieu.
-   - Tra ve ket qua dang text/markdown phu hop de gui lai Lark.
+   - Nhận prompt người dùng và context tài liệu.
+   - Trả về kết quả dạng text/markdown phù hợp để gửi lại Lark.
 
-## Flow xu ly hoan chinh
+## Backend dùng gì
 
-1. Nguoi dung gui prompt cho Lark Bot.
-   - Vi du: "Tom tat folder A", "Tim chinh sach nghi phep", "So sanh file X va Y".
-   - Message co the kem link folder/file Lark Drive hoac dung folder mac dinh da cau hinh.
+Backend nên dùng stack sau:
 
-2. Lark gui event den Vercel webhook.
-   - Backend nhan request tai `POST /api/lark/events`.
-   - Neu Lark gui challenge de verify endpoint, backend tra challenge ngay.
-   - Neu la message event, backend verify token/signature/encrypt theo cau hinh Lark.
+1. Framework
+   - Next.js App Router chạy trên Vercel.
+   - Dùng Route Handlers trong `app/api/**/route.ts` để tạo các endpoint webhook, processor, sync và health check.
+   - Toàn bộ backend viết bằng TypeScript.
+
+2. Runtime
+   - Dùng Node.js runtime cho các endpoint chính.
+   - Không dùng Edge runtime cho phần xử lý chính vì cần thư viện Node.js để parse file, gọi Supabase, xử lý crypto/encryption của Lark và có thể cần tải file binary.
+   - Cấu hình `maxDuration` trên Vercel cho các route xử lý dài nếu cần.
+
+3. Thư viện chính
+   - `@supabase/supabase-js` để ghi/đọc dữ liệu Supabase từ server.
+   - `openai` hoặc Vercel AI SDK để gọi AI.
+   - `zod` để validate env, request body và payload Lark.
+   - `pdf-parse`, `mammoth`, `xlsx` hoặc thư viện tương đương để trích xuất nội dung PDF, DOCX, XLSX.
+   - Dùng `fetch` native của Node.js để gọi Lark API, bọc lại bằng module riêng `lib/lark`.
+
+4. Kiến trúc code đề xuất
+   - `app/api/lark/events/route.ts`: nhận webhook từ Lark.
+   - `app/api/jobs/process/route.ts`: xử lý job nội bộ.
+   - `app/api/lark/sync-folder/route.ts`: đồng bộ folder Lark Drive.
+   - `app/api/health/route.ts`: kiểm tra trạng thái app.
+   - `lib/lark.ts`: lấy token, verify event, list folder, tải file, gửi message.
+   - `lib/supabase.ts`: tạo Supabase server client.
+   - `lib/ai.ts`: gọi model AI, format prompt và parse response.
+   - `lib/documents.ts`: parse file, chunk nội dung, tạo hash/cache.
+   - `lib/jobs.ts`: tạo job, cập nhật trạng thái, lưu kết quả.
+   - `lib/env.ts`: validate biến môi trường.
+
+5. Cách xử lý job
+   - MVP có thể xử lý ngay sau khi nhận webhook, nhưng webhook phải phản hồi nhanh cho Lark.
+   - Nên lưu job vào Supabase trước, trả ACK/challenge đúng yêu cầu Lark, sau đó gọi processor nội bộ.
+   - Nếu xử lý lâu, chuyển sang cron/queue/workflow để tránh timeout.
+
+## Flow xử lý hoàn chỉnh
+
+1. Người dùng gửi prompt cho Lark Bot.
+   - Ví dụ: "Tóm tắt folder A", "Tìm chính sách nghỉ phép", "So sánh file X và Y".
+   - Message có thể kèm link folder/file Lark Drive hoặc dùng folder mặc định đã cấu hình.
+
+2. Lark gửi event đến Vercel webhook.
+   - Backend nhận request tại `POST /api/lark/events`.
+   - Nếu Lark gửi challenge để verify endpoint, backend trả challenge ngay.
+   - Nếu là message event, backend verify token, signature và encryption theo cấu hình Lark.
 
 3. Backend parse event.
-   - Lay `message_id`, `chat_id`, `sender_id`, `tenant_key`, text prompt va attachment/link neu co.
-   - Kiem tra event da xu ly chua de tranh duplicate.
-   - Gui reply nhanh ve Lark neu tac vu co the lau: "Da nhan yeu cau, dang xu ly".
+   - Lấy `message_id`, `chat_id`, `sender_id`, `tenant_key`, text prompt và attachment/link nếu có.
+   - Kiểm tra event đã xử lý chưa để tránh duplicate.
+   - Gửi reply nhanh về Lark nếu tác vụ có thể lâu: "Đã nhận yêu cầu, đang xử lý".
 
-4. Backend tao job trong Supabase.
-   - Luu prompt, nguoi gui, chat_id, folder/file target, status `queued`.
-   - Luu raw event hoac phan can debug sau khi da loai bo secret.
-   - Tao job id de trace toan bo qua trinh.
+4. Backend tạo job trong Supabase.
+   - Lưu prompt, người gửi, chat_id, folder/file target và status `queued`.
+   - Lưu raw event hoặc phần cần debug sau khi đã loại bỏ secret.
+   - Tạo job id để trace toàn bộ quá trình.
 
-5. Job processor bat dau xu ly.
-   - Co the xu ly ngay trong Vercel Function neu tac vu ngan.
-   - Neu tac vu dai, nen dung hang doi/cron/background workflow de tranh timeout.
-   - Cap nhat status `processing`.
+5. Job processor bắt đầu xử lý.
+   - Có thể xử lý ngay trong Vercel Function nếu tác vụ ngắn.
+   - Nếu tác vụ dài, nên dùng hàng đợi, cron hoặc background workflow để tránh timeout.
+   - Cập nhật status `processing`.
 
-6. Lay access token Lark.
-   - Backend dung `LARK_APP_ID` va `LARK_APP_SECRET` de lay tenant access token.
-   - Cache token theo thoi gian het han de giam so lan goi API.
+6. Lấy access token Lark.
+   - Backend dùng `LARK_APP_ID` và `LARK_APP_SECRET` để lấy tenant access token.
+   - Cache token theo thời gian hết hạn để giảm số lần gọi API.
 
-7. Doc folder Lark Drive.
-   - Tu folder token/link, list file de quy neu can.
-   - Loc loai file duoc ho tro: doc, sheet, pdf, txt, markdown, csv, docx, xlsx.
-   - Luu metadata file vao Supabase: file_token, ten file, loai file, size, updated_time.
+7. Đọc folder Lark Drive.
+   - Từ folder token/link, list file đệ quy nếu cần.
+   - Lọc loại file được hỗ trợ: doc, sheet, pdf, txt, markdown, csv, docx, xlsx.
+   - Lưu metadata file vào Supabase: file_token, tên file, loại file, size, updated_time.
 
-8. Tai va trich xuat noi dung file.
-   - File Lark native doc/sheet can dung API export/doc content tu Lark.
-   - File binary nhu pdf/docx/xlsx can download roi parse o backend.
-   - Neu file lon, chia chunk theo section/trang/sheet.
+8. Tải và trích xuất nội dung file.
+   - File Lark native doc/sheet cần dùng API export hoặc doc content từ Lark.
+   - File binary như pdf/docx/xlsx cần download rồi parse ở backend.
+   - Nếu file lớn, chia chunk theo section/trang/sheet.
 
-9. Chon context cho AI.
-   - Giai doan dau co the dua toan bo noi dung da gioi han token vao prompt.
-   - Giai doan tot hon: tao embedding cho chunks, luu Supabase, truy van top chunks lien quan prompt.
-   - Moi response can luu source file/chunk de co the trich dan.
+9. Chọn context cho AI.
+   - Giai đoạn đầu có thể đưa toàn bộ nội dung đã giới hạn token vào prompt.
+   - Giai đoạn tốt hơn: tạo embedding cho chunks, lưu Supabase, truy vấn top chunks liên quan prompt.
+   - Mỗi response cần lưu source file/chunk để có thể trích dẫn.
 
-10. Goi AI.
-    - System prompt quy dinh vai tro, cach dung tai lieu, cach bao loi neu thieu thong tin.
-    - User prompt la noi dung nguoi dung gui.
-    - Context gom cac doan tai lieu lien quan va metadata nguon.
+10. Gọi AI.
+    - System prompt quy định vai trò, cách dùng tài liệu và cách báo lỗi nếu thiếu thông tin.
+    - User prompt là nội dung người dùng gửi.
+    - Context gồm các đoạn tài liệu liên quan và metadata nguồn.
 
-11. Luu ket qua vao Supabase.
-    - Cap nhat job status `completed` hoac `failed`.
-    - Luu response, token/cost neu provider tra ve, danh sach source da dung.
-    - Luu error stack noi bo neu loi, khong gui chi tiet nhay cam ve Lark.
+11. Lưu kết quả vào Supabase.
+    - Cập nhật job status `completed` hoặc `failed`.
+    - Lưu response, token/cost nếu provider trả về và danh sách source đã dùng.
+    - Lưu error stack nội bộ nếu lỗi, không gửi chi tiết nhạy cảm về Lark.
 
-12. Gui ket qua ve Lark.
-    - Gui reply vao dung `chat_id` hoac thread/message goc neu API ho tro.
-    - Neu ket qua dai, chia thanh nhieu message hoac gui file markdown.
-    - Neu loi, gui thong bao ngan gon va job id de trace.
+12. Gửi kết quả về Lark.
+    - Gửi reply vào đúng `chat_id` hoặc thread/message gốc nếu API hỗ trợ.
+    - Nếu kết quả dài, chia thành nhiều message hoặc gửi file markdown.
+    - Nếu lỗi, gửi thông báo ngắn gọn và job id để trace.
 
-## Luong dong bo tai lieu
+## Luồng đồng bộ tài liệu
 
-Phuong an MVP:
+Phương án MVP:
 
-1. Moi lan co prompt, backend list folder va tai file can thiet.
-2. Cache metadata/noi dung trong Supabase theo `file_token` va `updated_time`.
-3. Neu file chua doi, dung cache.
+1. Mỗi lần có prompt, backend list folder và tải file cần thiết.
+2. Cache metadata/nội dung trong Supabase theo `file_token` và `updated_time`.
+3. Nếu file chưa đổi, dùng cache.
 
-Phuong an nang cap:
+Phương án nâng cấp:
 
-1. Co endpoint/schedule dong bo folder dinh ky.
-2. Luu chunk va embedding vao Supabase.
-3. Khi nguoi dung prompt, chi query chunks lien quan thay vi doc lai toan bo folder.
+1. Có endpoint/schedule đồng bộ folder định kỳ.
+2. Lưu chunk và embedding vào Supabase.
+3. Khi người dùng prompt, chỉ query chunks liên quan thay vì đọc lại toàn bộ folder.
 
-## Database draft tren Supabase
+## Database draft trên Supabase
 
-Bang du kien:
+Bảng dự kiến:
 
 1. `lark_users`
    - `id`
@@ -165,121 +203,121 @@ Bang du kien:
    - `chunk_id`
    - `score`
 
-## Endpoint du kien
+## Endpoint dự kiến
 
 1. `POST /api/lark/events`
-   - Webhook nhan event/challenge tu Lark.
+   - Webhook nhận event/challenge từ Lark.
 
 2. `POST /api/jobs/process`
-   - Processor noi bo de xu ly job.
-   - Can bao ve bang secret rieng, khong public.
+   - Processor nội bộ để xử lý job.
+   - Cần bảo vệ bằng secret riêng, không public cho bên ngoài gọi tùy ý.
 
 3. `POST /api/lark/sync-folder`
-   - Dong bo folder thu cong hoac qua cron.
-   - Can bao ve bang secret rieng.
+   - Đồng bộ folder thủ công hoặc qua cron.
+   - Cần bảo vệ bằng secret riêng.
 
 4. `GET /api/health`
-   - Kiem tra app song va env co du hay khong, khong tra secret.
+   - Kiểm tra app sống và env có đủ hay không, không trả secret.
 
-## Bien moi truong can co
+## Biến môi trường cần có
 
 Lark:
 
 - `LARK_APP_ID`
 - `LARK_APP_SECRET`
 - `LARK_VERIFICATION_TOKEN`
-- `LARK_ENCRYPT_KEY` neu event encryption duoc bat
-- `LARK_BOT_OPEN_ID` neu can
-- `LARK_DEFAULT_FOLDER_TOKEN` hoac folder URL mac dinh
+- `LARK_ENCRYPT_KEY` nếu event encryption được bật
+- `LARK_BOT_OPEN_ID` nếu cần
+- `LARK_DEFAULT_FOLDER_TOKEN` hoặc folder URL mặc định
 
 Supabase:
 
 - `SUPABASE_URL`
 - `SUPABASE_SERVICE_ROLE_KEY`
-- `SUPABASE_ANON_KEY` neu co frontend sau nay
+- `SUPABASE_ANON_KEY` nếu có frontend sau này
 
 AI:
 
-- `OPENAI_API_KEY` hoac key provider AI ban muon dung
+- `OPENAI_API_KEY` hoặc key provider AI bạn muốn dùng
 - `AI_MODEL`
-- `EMBEDDING_MODEL` neu dung retrieval/embedding
+- `EMBEDDING_MODEL` nếu dùng retrieval/embedding
 
 Vercel/internal:
 
 - `INTERNAL_JOB_SECRET`
-- `CRON_SECRET` neu co cron sync
-- `APP_BASE_URL` la URL deployment Vercel
+- `CRON_SECRET` nếu có cron sync
+- `APP_BASE_URL` là URL deployment Vercel
 
-## Nhung thong tin can ban cung cap
+## Những thông tin cần bạn cung cấp
 
-1. Tai lieu API Lark
-   - Vi du request/response cua event bot message.
-   - Cach verify webhook, challenge, signature va encryption neu co.
-   - API lay tenant access token.
-   - API doc/list folder Lark Drive.
+1. Tài liệu API Lark
+   - Ví dụ request/response của event bot message.
+   - Cách verify webhook, challenge, signature và encryption nếu có.
+   - API lấy tenant access token.
+   - API đọc/list folder Lark Drive.
    - API download/export file.
-   - API gui message/reply ve chat.
+   - API gửi message/reply về chat.
 
-2. Thong tin Lark App
+2. Thông tin Lark App
    - App ID.
    - App Secret.
    - Verification Token.
-   - Encrypt Key neu bat encryption.
-   - Danh sach scopes/permissions da cap cho app.
-   - Bot co duoc add vao chat/group nao.
-   - Folder URL/token mau trong Lark Drive.
+   - Encrypt Key nếu bật encryption.
+   - Danh sách scopes/permissions đã cấp cho app.
+   - Bot có được add vào chat/group nào.
+   - Folder URL/token mẫu trong Lark Drive.
 
-3. Mau event/message thuc te
-   - 1 event nguoi dung nhan text cho bot.
-   - 1 event co link folder/file neu co.
-   - 1 response mau khi Lark yeu cau challenge webhook.
+3. Mẫu event/message thực tế
+   - Một event người dùng nhắn text cho bot.
+   - Một event có link folder/file nếu có.
+   - Một response mẫu khi Lark yêu cầu challenge webhook.
 
 4. Supabase
    - Project URL.
-   - Service role key de backend dung, khong dua vao client.
-   - Neu da co schema cu, cung cap dump/schema; neu khong co, minh se tao migration moi.
+   - Service role key để backend dùng, không đưa vào client.
+   - Nếu đã có schema cũ, cung cấp dump/schema; nếu không có, mình sẽ tạo migration mới.
 
 5. Vercel
-   - Project/org muon deploy.
-   - URL domain mong muon hoac de Vercel tao preview.
-   - Cac env var se set tren Vercel.
+   - Project/org muốn deploy.
+   - URL domain mong muốn hoặc để Vercel tạo preview.
+   - Các env var sẽ set trên Vercel.
 
 6. AI
-   - Provider muon dung.
-   - Model uu tien.
-   - Yeu cau ve ngon ngu tra loi, format, trich dan nguon.
-   - Gioi han chi phi/token neu co.
+   - Provider muốn dùng.
+   - Model ưu tiên.
+   - Yêu cầu về ngôn ngữ trả lời, format và trích dẫn nguồn.
+   - Giới hạn chi phí/token nếu có.
 
-7. Tai lieu mau trong folder
-   - Vai file mau hoac mo ta loai file chinh.
-   - File co the chua du lieu nhay cam khong.
-   - Can tra loi dua tren toan bo folder hay theo tung folder nguoi dung gui.
+7. Tài liệu mẫu trong folder
+   - Vài file mẫu hoặc mô tả loại file chính.
+   - File có thể chứa dữ liệu nhạy cảm không.
+   - Cần trả lời dựa trên toàn bộ folder hay theo từng folder người dùng gửi.
 
-## Luong bao mat can giu
+## Luồng bảo mật cần giữ
 
-1. Khong commit bat ky secret nao vao Git.
-2. `SUPABASE_SERVICE_ROLE_KEY`, `LARK_APP_SECRET`, `OPENAI_API_KEY` chi nam trong Vercel env.
-3. Endpoint noi bo phai verify `INTERNAL_JOB_SECRET`.
-4. Webhook Lark phai verify request truoc khi tao job.
-5. Supabase table o schema public can bat RLS neu expose qua Data API.
-6. Log chi luu du de debug, tranh luu raw secret/token.
+1. Không commit bất kỳ secret nào vào Git.
+2. `SUPABASE_SERVICE_ROLE_KEY`, `LARK_APP_SECRET`, `OPENAI_API_KEY` chỉ nằm trong Vercel env.
+3. Endpoint nội bộ phải verify `INTERNAL_JOB_SECRET`.
+4. Webhook Lark phải verify request trước khi tạo job.
+5. Supabase table ở schema public cần bật RLS nếu expose qua Data API.
+6. Log chỉ lưu đủ để debug, tránh lưu raw secret/token.
 
-## MVP de trien khai truoc
+## MVP để triển khai trước
 
-1. Tao Next.js app chay tren Vercel.
-2. Tao webhook Lark `POST /api/lark/events`.
-3. Verify challenge va nhan text message.
-4. Luu job vao Supabase.
-5. Lay folder mac dinh tu `LARK_DEFAULT_FOLDER_TOKEN`.
-6. List va doc mot so file text/pdf/docx mau.
-7. Goi AI voi context da lay duoc.
-8. Gui ket qua ve Lark chat.
-9. Luu response va log job.
+1. Tạo Next.js app chạy trên Vercel.
+2. Tạo webhook Lark `POST /api/lark/events`.
+3. Verify challenge và nhận text message.
+4. Lưu job vào Supabase.
+5. Lấy folder mặc định từ `LARK_DEFAULT_FOLDER_TOKEN`.
+6. List và đọc một số file text/pdf/docx mẫu.
+7. Gọi AI với context đã lấy được.
+8. Gửi kết quả về Lark chat.
+9. Lưu response và log job.
 
-## Viec can quyet dinh truoc khi code
+## Việc cần quyết định trước khi code
 
-1. Dung Next.js API routes hay mot framework server nhe hon tren Vercel.
-2. Xu ly job ngay trong webhook hay tach processor/background.
-3. Co can embedding/search ngay tu dau khong hay MVP doc context truc tiep.
-4. Folder nguon la mac dinh theo bot hay nguoi dung co the gui folder moi trong prompt.
-5. Ket qua dai se chia message hay tao file tra ve trong Lark Drive.
+1. Xử lý job ngay trong webhook hay tách processor/background.
+2. Có cần embedding/search ngay từ đầu không hay MVP đọc context trực tiếp.
+3. Folder nguồn là mặc định theo bot hay người dùng có thể gửi folder mới trong prompt.
+4. Kết quả dài sẽ chia message hay tạo file trả về trong Lark Drive.
+5. Có cần dashboard quản trị sau này không, hay giai đoạn đầu chỉ vận hành qua log và Supabase.
