@@ -1,0 +1,7 @@
+{
+  "/_global-error/page": "/_global-error",
+  "/_not-found/page": "/_not-found",
+  "/api/lark/ask/route": "/api/lark/ask",
+  "/api/lark/events/route": "/api/lark/events",
+  "/api/lark/sync-wiki/route": "/api/lark/sync-wiki"
+}

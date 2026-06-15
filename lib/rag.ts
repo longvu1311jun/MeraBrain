@@ -1,9 +1,10 @@
 import { env } from "./env";
-import { openai, embedText } from "./openai";
-import { supabase } from "./supabase";
+import { getOpenAIClient, embedText } from "./openai";
+import { getSupabaseClient } from "./supabase";
 
 export async function answerWithWiki(question: string) {
   const embedding = await embedText(question);
+  const supabase = getSupabaseClient();
   const { data: matches, error } = await supabase.rpc("match_wiki_chunks", {
     query_embedding: embedding,
     match_count: 6,
@@ -19,7 +20,7 @@ export async function answerWithWiki(question: string) {
     return { answer: "Mình chưa tìm thấy dữ liệu phù hợp trong Wiki. Bạn thử hỏi cụ thể hơn hoặc sync lại Wiki nhé.", sources: [] };
   }
 
-  const completion = await openai.chat.completions.create({
+  const completion = await getOpenAIClient().chat.completions.create({
     model: env.OPENAI_MODEL,
     temperature: 0.2,
     messages: [

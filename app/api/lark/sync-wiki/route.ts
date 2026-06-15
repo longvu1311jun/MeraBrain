@@ -3,12 +3,14 @@ import { env } from "../../../../lib/env";
 import { chunkText } from "../../../../lib/chunk";
 import { listFolderChildren, getDocxRawContent } from "../../../../lib/lark";
 import { embedText } from "../../../../lib/openai";
-import { supabase } from "../../../../lib/supabase";
+import { getSupabaseClient } from "../../../../lib/supabase";
 
 export const runtime = "nodejs";
 export const maxDuration = 300;
 
 export async function POST(req: NextRequest) {
+  const supabase = getSupabaseClient();
+
   if (env.SYNC_SECRET) {
     const secret = req.headers.get("x-sync-secret");
     if (secret !== env.SYNC_SECRET) return NextResponse.json({ error: "unauthorized" }, { status: 401 });

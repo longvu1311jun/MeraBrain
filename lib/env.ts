@@ -13,4 +13,24 @@ const schema = z.object({
   SYNC_SECRET: z.string().optional().default(""),
 });
 
-export const env = schema.parse(process.env);
+export type Env = z.infer<typeof schema>;
+
+let cachedEnv: Env | null = null;
+
+export function getEnv(): Env {
+  if (!cachedEnv) {
+    const result = schema.safeParse(process.env);
+    if (!result.success) {
+      const issues = result.error.issues.map((issue) => `${issue.path.join(".")}: ${issue.message}`).join("; ");
+      throw new Error(`Invalid environment configuration: ${issues}`);
+    }
+    cachedEnv = result.data;
+  }
+  return cachedEnv;
+}
+
+export const env = new Proxy({} as Env, {
+  get(_target, prop) {
+    return getEnv()[prop as keyof Env];
+  },
+}) as Env;

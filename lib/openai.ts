@@ -1,10 +1,18 @@
 import OpenAI from "openai";
-import { env } from "./env";
+import { getEnv } from "./env";
 
-export const openai = new OpenAI({ apiKey: env.OPENAI_API_KEY });
+let openaiClient: OpenAI | null = null;
+
+export function getOpenAIClient() {
+  if (!openaiClient) {
+    openaiClient = new OpenAI({ apiKey: getEnv().OPENAI_API_KEY });
+  }
+  return openaiClient;
+}
 
 export async function embedText(input: string): Promise<number[]> {
-  const res = await openai.embeddings.create({
+  const env = getEnv();
+  const res = await getOpenAIClient().embeddings.create({
     model: env.OPENAI_EMBEDDING_MODEL,
     input,
   });

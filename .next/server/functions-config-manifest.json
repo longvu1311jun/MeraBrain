@@ -1,0 +1,14 @@
+{
+  "version": 1,
+  "functions": {
+    "/api/lark/ask": {
+      "maxDuration": 60
+    },
+    "/api/lark/events": {
+      "maxDuration": 60
+    },
+    "/api/lark/sync-wiki": {
+      "maxDuration": 300
+    }
+  }
+}

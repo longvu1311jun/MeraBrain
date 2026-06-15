@@ -2,12 +2,13 @@ import { NextRequest, NextResponse } from "next/server";
 import { env } from "../../../../lib/env";
 import { parseLarkTextMessage, sendTextMessage } from "../../../../lib/lark";
 import { answerWithWiki } from "../../../../lib/rag";
-import { supabase } from "../../../../lib/supabase";
+import { getSupabaseClient } from "../../../../lib/supabase";
 
 export const runtime = "nodejs";
 export const maxDuration = 60;
 
 export async function POST(req: NextRequest) {
+  const supabase = getSupabaseClient();
   const body = await req.json();
 
   // Lark URL verification challenge
