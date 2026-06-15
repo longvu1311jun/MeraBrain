@@ -1,4 +1,5 @@
 import type { CSSProperties } from "react";
+import { LiveMessagePanel } from "./components/live-message-panel";
 
 const endpoints = [
   { name: "POST /api/lark/events", detail: "Lark webhook receiver for messages and callbacks." },
@@ -34,6 +35,8 @@ export default function HomePage() {
               ))}
             </ul>
           </div>
+
+          <LiveMessagePanel />
 
           <div style={styles.card}>
             <h2 style={styles.cardTitle}>API</h2>
