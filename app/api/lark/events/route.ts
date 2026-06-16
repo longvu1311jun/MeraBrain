@@ -6,6 +6,14 @@ import { generateBotReply } from "@/lib/gemini";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
+const processedKeys = globalThis as typeof globalThis & {
+  __larkProcessedKeys?: Map<string, number>;
+};
+
+const recentEventKeys = processedKeys.__larkProcessedKeys ?? new Map<string, number>();
+processedKeys.__larkProcessedKeys = recentEventKeys;
+const PROCESSED_TTL_MS = 10 * 60 * 1000;
+
 export async function GET() {
   return NextResponse.json({ ok: true, endpoint: "lark-events", method: "POST" });
 }
@@ -40,6 +48,10 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ ok: true, ignored: true, reason: "bot_message" });
   }
 
+  if (isDuplicatePayload(payload.header?.event_id, message.message_id)) {
+    return NextResponse.json({ ok: true, ignored: true, reason: "duplicate_event" });
+  }
+
   const userText = extractMessageText(message.content, message.mentions);
   if (!userText) {
     return NextResponse.json({ ok: true, ignored: true, reason: "empty_text" });
@@ -55,6 +67,43 @@ export async function POST(request: NextRequest) {
   } catch (error) {
     console.error("[lark/events] ai reply failed", error);
     return NextResponse.json({ ok: false, error: "reply_failed" }, { status: 500 });
+  }
+}
+
+function isDuplicatePayload(eventId: string | undefined, messageId: string) {
+  cleanupRecentEventKeys();
+
+  const now = Date.now();
+  const keys = [eventId, messageId].filter(Boolean) as string[];
+
+  for (const key of keys) {
+    if (recentEventKeys.has(key)) {
+      return true;
+    }
+  }
+
+  for (const key of keys) {
+    recentEventKeys.set(key, now);
+  }
+
+  return false;
+}
+
+function cleanupRecentEventKeys() {
+  const cutoff = Date.now() - PROCESSED_TTL_MS;
+
+  for (const [key, timestamp] of recentEventKeys.entries()) {
+    if (timestamp < cutoff) {
+      recentEventKeys.delete(key);
+    }
+  }
+
+  if (recentEventKeys.size > 1000) {
+    const entries = [...recentEventKeys.entries()].sort((a, b) => a[1] - b[1]);
+    recentEventKeys.clear();
+    for (const [key, timestamp] of entries.slice(-500)) {
+      recentEventKeys.set(key, timestamp);
+    }
   }
 }
 
