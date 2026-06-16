@@ -4,7 +4,7 @@
       "maxDuration": 30
     },
     "app/api/admin/sync-lark-drive/route.ts": {
-      "maxDuration": 60
+      "maxDuration": 120
     }
   }
 }

@@ -6,9 +6,34 @@ import {
   type LarkDriveNode
 } from "@/lib/lark-drive";
 import {
+  createWikiSyncRun,
+  getLatestRunningWikiSyncRun,
   replaceWikiChunks,
-  upsertWikiDocument
+  updateWikiSyncRun,
+  upsertWikiDocument,
+  type WikiSyncRunRow
 } from "@/lib/supabase-rest";
+
+type SyncTask =
+  | {
+      kind: "folder";
+      folderToken: string;
+      pageToken: string | null;
+    }
+  | {
+      kind: "file";
+      token: string;
+      title: string;
+      fileType: string | null;
+      extension: string | null;
+      url: string | null;
+      nodeKind: string;
+    };
+
+type SyncState = {
+  queue: SyncTask[];
+  visitedFolders: string[];
+};
 
 export type WikiSyncSummary = {
   folderToken: string;
@@ -17,7 +42,13 @@ export type WikiSyncSummary = {
   skipped: number;
   folders: number;
   errors: Array<{ title: string; token: string; reason: string }>;
+  status: "running" | "completed";
+  runId: string;
+  remainingTasks: number;
 };
+
+const MAX_FILES_PER_BATCH = 3;
+const MAX_BATCH_MS = 45_000;
 
 export async function syncWikiFolder(folderToken?: string): Promise<WikiSyncSummary> {
   const env = getWikiEnv();
@@ -26,100 +57,193 @@ export async function syncWikiFolder(folderToken?: string): Promise<WikiSyncSumm
     throw new Error("Missing LARK_WIKI_FOLDER_TOKEN.");
   }
 
-  const summary: WikiSyncSummary = {
-    folderToken: resolvedFolderToken,
-    scanned: 0,
-    indexed: 0,
-    skipped: 0,
-    folders: 0,
-    errors: []
-  };
-
-  const visitedFolders = new Set<string>();
-  await syncFolderRecursive(resolvedFolderToken, visitedFolders, summary);
-  return summary;
+  const run = await getOrCreateRunningSyncRun(resolvedFolderToken);
+  return processSyncBatch(run);
 }
 
-async function syncFolderRecursive(
-  folderToken: string,
-  visitedFolders: Set<string>,
-  summary: WikiSyncSummary
-) {
-  if (visitedFolders.has(folderToken)) {
-    return;
+async function getOrCreateRunningSyncRun(folderToken: string) {
+  const existing = await getLatestRunningWikiSyncRun(folderToken);
+  if (existing) {
+    return existing;
   }
 
-  visitedFolders.add(folderToken);
-  summary.folders += 1;
-
-  let pageToken: string | null = null;
-  do {
-    const page = await listFolderChildren(folderToken, pageToken);
-    console.log("[wiki-sync] folder page", {
-      folderToken,
-      pageToken,
-      itemCount: page.items.length,
-      hasMore: page.hasMore,
-      nextPageToken: page.nextPageToken,
-      rawKeys: Object.keys(page.raw),
-      childrenType: Array.isArray(page.childrenRaw) ? "array" : typeof page.childrenRaw,
-      childrenPreview: Array.isArray(page.childrenRaw)
-        ? page.childrenRaw.slice(0, 3)
-        : page.childrenRaw
-    });
-
-    for (const item of page.items) {
-      summary.scanned += 1;
-      console.log("[wiki-sync] found item", {
-        kind: item.kind,
-        token: item.token,
-        title: item.title,
-        fileType: item.fileType,
-        extension: item.extension
-      });
-      if (item.kind === "folder") {
-        await syncFolderRecursive(item.token, visitedFolders, summary);
-        continue;
+  const state: SyncState = {
+    queue: [
+      {
+        kind: "folder",
+        folderToken,
+        pageToken: null
       }
+    ],
+    visitedFolders: []
+  };
 
-      await indexDriveNode(item, summary);
-    }
-
-    pageToken = page.nextPageToken;
-  } while (pageToken);
+  return createWikiSyncRun({
+    folderToken,
+    state
+  });
 }
 
-async function indexDriveNode(node: LarkDriveNode, summary: WikiSyncSummary) {
-  try {
-    console.log("[wiki-sync] indexing node", {
-      token: node.token,
-      title: node.title,
-      kind: node.kind,
-      fileType: node.fileType,
-      extension: node.extension
+async function processSyncBatch(run: WikiSyncRunRow): Promise<WikiSyncSummary> {
+  const state = normalizeState(run.state, run.folder_token);
+  const startedAt = Date.now();
+  let filesProcessed = 0;
+  const errors = normalizeErrors(run.errors);
+
+  while (state.queue.length) {
+    if (filesProcessed >= MAX_FILES_PER_BATCH) {
+      break;
+    }
+
+    if (Date.now() - startedAt > MAX_BATCH_MS) {
+      break;
+    }
+
+    const task = state.queue.shift();
+    if (!task) {
+      break;
+    }
+
+    if (task.kind === "folder") {
+      const visited = await processFolderTask(task, state);
+      if (visited) {
+        run.folders += 1;
+      }
+      continue;
+    }
+
+    const result = await processFileTask(task);
+    filesProcessed += 1;
+    run.scanned += 1;
+
+    if (result.indexed) {
+      run.indexed += 1;
+    } else {
+      run.skipped += 1;
+    }
+
+    if (result.error) {
+      errors.push({
+        title: task.title,
+        token: task.token,
+        reason: result.error
+      });
+    }
+
+    await updateRunningRun(run.id, state, run, errors);
+  }
+
+  const completed = state.queue.length === 0;
+  if (completed) {
+    run.status = "completed";
+  }
+
+  await updateRunningRun(run.id, state, run, errors, completed ? "completed" : "running");
+
+  return {
+    folderToken: run.folder_token,
+    scanned: run.scanned,
+    indexed: run.indexed,
+    skipped: run.skipped,
+    folders: run.folders,
+    errors,
+    status: completed ? "completed" : "running",
+    runId: run.id,
+    remainingTasks: state.queue.length
+  };
+}
+
+async function processFolderTask(task: Extract<SyncTask, { kind: "folder" }>, state: SyncState) {
+  if (state.visitedFolders.includes(task.folderToken)) {
+    return false;
+  }
+
+  state.visitedFolders.push(task.folderToken);
+  console.log("[wiki-sync] folder task", task);
+
+  const page = await listFolderChildren(task.folderToken, task.pageToken);
+  console.log("[wiki-sync] folder page", {
+    folderToken: task.folderToken,
+    pageToken: task.pageToken,
+    itemCount: page.items.length,
+    hasMore: page.hasMore,
+    nextPageToken: page.nextPageToken,
+    rawKeys: Object.keys(page.raw),
+    childrenType: Array.isArray(page.childrenRaw) ? "array" : typeof page.childrenRaw,
+    childrenPreview: Array.isArray(page.childrenRaw) ? page.childrenRaw.slice(0, 3) : page.childrenRaw
+  });
+
+  for (const item of page.items) {
+    console.log("[wiki-sync] discovered item", {
+      kind: item.kind,
+      token: item.token,
+      title: item.title,
+      fileType: item.fileType,
+      extension: item.extension
     });
+
+    if (item.kind === "folder") {
+      state.queue.push({
+        kind: "folder",
+        folderToken: item.token,
+        pageToken: null
+      });
+      continue;
+    }
+
+    state.queue.push({
+      kind: "file",
+      token: item.token,
+      title: item.title,
+      fileType: item.fileType ?? null,
+      extension: item.extension ?? null,
+      url: item.url ?? null,
+      nodeKind: item.kind
+    });
+  }
+
+  if (page.nextPageToken) {
+    state.queue.push({
+      kind: "folder",
+      folderToken: task.folderToken,
+      pageToken: page.nextPageToken
+    });
+  }
+
+  return true;
+}
+
+async function processFileTask(task: Extract<SyncTask, { kind: "file" }>) {
+  try {
+    console.log("[wiki-sync] indexing file", {
+      token: task.token,
+      title: task.title,
+      fileType: task.fileType,
+      extension: task.extension,
+      kind: task.nodeKind
+    });
+
     const rawText = await extractDriveFileText({
-      title: node.title,
-      token: node.token,
-      fileType: node.fileType,
-      extension: node.extension
+      title: task.title,
+      token: task.token,
+      fileType: task.fileType,
+      extension: task.extension
     });
 
     const normalizedText = normalizeText(rawText);
     if (!normalizedText) {
-      summary.skipped += 1;
       console.log("[wiki-sync] skipped empty text", {
-        token: node.token,
-        title: node.title
+        token: task.token,
+        title: task.title
       });
-      return;
+      return { indexed: false, error: null as string | null };
     }
 
     const documentRow = await upsertWikiDocument({
-      larkToken: node.token,
-      title: node.title,
-      url: node.url ?? null,
-      fileType: node.fileType ?? node.kind,
+      larkToken: task.token,
+      title: task.title,
+      url: task.url ?? null,
+      fileType: task.fileType ?? task.nodeKind,
       rawText: normalizedText
     });
 
@@ -133,29 +257,84 @@ async function indexDriveNode(node: LarkDriveNode, summary: WikiSyncSummary) {
         chunkText,
         embedding,
         metadata: {
-          title: node.title,
-          url: node.url ?? null,
-          kind: node.kind,
-          token: node.token,
+          title: task.title,
+          url: task.url ?? null,
+          kind: task.nodeKind,
+          token: task.token,
           chunk_index: index
         }
       });
     }
 
     await replaceWikiChunks(documentRow.id, indexedChunks);
-    summary.indexed += 1;
+    return { indexed: true, error: null as string | null };
   } catch (error) {
-    console.error("[wiki-sync] index failed", {
-      token: node.token,
-      title: node.title,
-      error: error instanceof Error ? error.message : String(error)
+    const message = error instanceof Error ? error.message : String(error);
+    console.error("[wiki-sync] file index failed", {
+      token: task.token,
+      title: task.title,
+      error: message
     });
-    summary.errors.push({
-      title: node.title,
-      token: node.token,
-      reason: error instanceof Error ? error.message : String(error)
+    return { indexed: false, error: message };
+  }
+}
+
+async function updateRunningRun(
+  runId: string,
+  state: SyncState,
+  run: WikiSyncRunRow,
+  errors: Array<{ title: string; token: string; reason: string }>,
+  status?: "running" | "completed"
+) {
+  run.errors = errors;
+  await updateWikiSyncRun(runId, {
+    status: status ?? "running",
+    state,
+    scanned: run.scanned,
+    indexed: run.indexed,
+    skipped: run.skipped,
+    folders: run.folders,
+    errors
+  });
+}
+
+function normalizeState(state: Record<string, unknown>, folderToken: string): SyncState {
+  const queue = Array.isArray(state.queue) ? (state.queue as SyncTask[]) : [];
+  const visitedFolders = Array.isArray(state.visitedFolders)
+    ? state.visitedFolders.filter((value): value is string => typeof value === "string")
+    : [folderToken];
+
+  if (!queue.length) {
+    queue.push({
+      kind: "folder",
+      folderToken,
+      pageToken: null
     });
   }
+
+  return {
+    queue,
+    visitedFolders
+  };
+}
+
+function normalizeErrors(errors: unknown) {
+  if (!Array.isArray(errors)) {
+    return [];
+  }
+
+  return errors.filter((error): error is { title: string; token: string; reason: string } => {
+    if (!error || typeof error !== "object") {
+      return false;
+    }
+
+    const record = error as Record<string, unknown>;
+    return (
+      typeof record.title === "string" &&
+      typeof record.token === "string" &&
+      typeof record.reason === "string"
+    );
+  });
 }
 
 function splitTextIntoChunks(text: string, maxChars: number, overlapChars: number) {

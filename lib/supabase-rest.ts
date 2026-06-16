@@ -75,6 +75,20 @@ export type WikiChunkMatch = {
   metadata: Record<string, unknown> | null;
 };
 
+export type WikiSyncRunRow = {
+  id: string;
+  folder_token: string;
+  status: string;
+  state: Record<string, unknown>;
+  scanned: number;
+  indexed: number;
+  skipped: number;
+  folders: number;
+  errors: unknown;
+  created_at: string;
+  updated_at: string;
+};
+
 export async function listWikiDocumentsCount() {
   const response = await supabaseRequest("/rest/v1/wiki_documents?select=id", {
     method: "GET",
@@ -203,4 +217,68 @@ export async function matchWikiChunks(input: {
   });
 
   return parseSupabaseJson<WikiChunkMatch[]>(response);
+}
+
+export async function getLatestRunningWikiSyncRun(folderToken: string) {
+  const response = await supabaseRequest(
+    `/rest/v1/wiki_sync_runs?select=*&folder_token=eq.${encodeURIComponent(folderToken)}&status=eq.running&order=updated_at.desc&limit=1`,
+    {
+      method: "GET",
+      headers: {
+        Prefer: "return=representation"
+      }
+    }
+  );
+
+  const rows = await parseSupabaseJson<WikiSyncRunRow[]>(response);
+  return rows[0] ?? null;
+}
+
+export async function createWikiSyncRun(input: {
+  folderToken: string;
+  state: Record<string, unknown>;
+}) {
+  const response = await supabaseRequest("/rest/v1/wiki_sync_runs", {
+    method: "POST",
+    headers: {
+      Prefer: "return=representation"
+    },
+    body: JSON.stringify({
+      folder_token: input.folderToken,
+      status: "running",
+      state: input.state,
+      scanned: 0,
+      indexed: 0,
+      skipped: 0,
+      folders: 0,
+      errors: []
+    })
+  });
+
+  const rows = await parseSupabaseJson<WikiSyncRunRow[]>(response);
+  const row = rows[0];
+  if (!row) {
+    throw new Error("Supabase did not return the created wiki sync run.");
+  }
+
+  return row;
+}
+
+export async function updateWikiSyncRun(
+  runId: string,
+  input: Partial<Pick<WikiSyncRunRow, "status" | "state" | "scanned" | "indexed" | "skipped" | "folders" | "errors">>
+) {
+  const response = await supabaseRequest(`/rest/v1/wiki_sync_runs?id=eq.${encodeURIComponent(runId)}`, {
+    method: "PATCH",
+    headers: {
+      Prefer: "return=representation"
+    },
+    body: JSON.stringify({
+      ...input,
+      updated_at: new Date().toISOString()
+    })
+  });
+
+  const rows = await parseSupabaseJson<WikiSyncRunRow[]>(response);
+  return rows[0] ?? null;
 }
