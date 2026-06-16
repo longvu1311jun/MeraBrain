@@ -48,7 +48,18 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ ok: true, ignored: true, reason: "bot_message" });
   }
 
+  console.log("[lark/events] received message", {
+    eventId: payload.header?.event_id,
+    messageId: message.message_id,
+    threadId: message.thread_id ?? null,
+    senderType
+  });
+
   if (isDuplicatePayload(payload.header?.event_id, message.message_id)) {
+    console.log("[lark/events] duplicate payload skipped", {
+      eventId: payload.header?.event_id,
+      messageId: message.message_id
+    });
     return NextResponse.json({ ok: true, ignored: true, reason: "duplicate_event" });
   }
 
@@ -59,6 +70,11 @@ export async function POST(request: NextRequest) {
 
   try {
     const reply = await generateBotReply(userText);
+    console.log("[lark/events] generated reply", {
+      eventId: payload.header?.event_id,
+      messageId: message.message_id,
+      replyLength: reply.length
+    });
     await replyTextToMessage(message.message_id, reply, {
       replyInThread: Boolean(message.thread_id)
     });

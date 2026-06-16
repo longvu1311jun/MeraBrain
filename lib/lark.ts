@@ -1,4 +1,4 @@
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { getLarkEnv } from "@/lib/env";
 
 const LARK_OPEN_API_BASE_URL = "https://open.larksuite.com/open-apis";
@@ -16,6 +16,7 @@ export async function replyTextToMessage(
   options: { replyInThread?: boolean } = {}
 ) {
   const token = await getTenantAccessToken();
+  const uuid = createStableReplyUuid(messageId);
   const response = await fetch(
     `${LARK_OPEN_API_BASE_URL}/im/v1/messages/${encodeURIComponent(messageId)}/reply`,
     {
@@ -28,7 +29,7 @@ export async function replyTextToMessage(
         msg_type: "text",
         content: JSON.stringify({ text }),
         reply_in_thread: options.replyInThread ?? false,
-        uuid: randomUUID()
+        uuid
       })
     }
   );
@@ -114,4 +115,9 @@ export class LarkApiError extends Error {
   ) {
     super(`Lark API failed while trying to ${action}`);
   }
+}
+
+function createStableReplyUuid(messageId: string) {
+  const hash = createHash("sha256").update(messageId).digest("hex").slice(0, 32);
+  return `lark-reply-${hash}`;
 }
