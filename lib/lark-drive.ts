@@ -1,7 +1,6 @@
 import { Buffer } from "node:buffer";
 import path from "node:path";
 import mammoth from "mammoth";
-import { PDFParse, VerbosityLevel } from "pdf-parse";
 import * as XLSX from "xlsx";
 import { getLarkTenantAccessToken } from "@/lib/lark";
 
@@ -128,14 +127,20 @@ export async function extractDriveFileText(input: {
   }
 
   if (extension === "pdf") {
-    const parser = new PDFParse({
-      data: bytes,
-      verbosity: VerbosityLevel.ERRORS
-    });
-    const parsed = await parser.getText();
-    const text = parsed.pages.map((page) => page.text).join("\n\n").trim();
-    await parser.destroy();
-    return text;
+    try {
+      const pdfModule = await import("pdf-parse");
+      const parser = new pdfModule.PDFParse({
+        data: bytes,
+        verbosity: pdfModule.VerbosityLevel.ERRORS
+      });
+      const parsed = await parser.getText();
+      const text = parsed.pages.map((page) => page.text).join("\n\n").trim();
+      await parser.destroy();
+      return text;
+    } catch (error) {
+      console.warn("[lark-drive] pdf parse failed, fallback to text decode", error);
+      return new TextDecoder("utf-8").decode(bytes).trim();
+    }
   }
 
   if (extension === "docx") {
