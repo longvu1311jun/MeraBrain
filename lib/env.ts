@@ -15,6 +15,11 @@ export type GeminiEnv = {
   model: string;
 };
 
+export type SupabaseEnv = {
+  url: string;
+  serviceRoleKey: string;
+};
+
 export function getLarkEnv(): LarkEnv {
   const appId = readRequiredEnv("LARK_APP_ID");
   const appSecret = readRequiredEnv("LARK_APP_SECRET");
@@ -47,6 +52,27 @@ export function getGeminiEnvStatus() {
   return {
     apiKey: Boolean(readOptionalEnv("GEMINI_API_KEY")),
     model: readOptionalEnv("GEMINI_MODEL") ?? "gemini-3.5-flash"
+  };
+}
+
+export function getSupabaseEnv(): SupabaseEnv | null {
+  const url = readOptionalEnv("SUPABASE_URL");
+  const serviceRoleKey = readOptionalEnv("SUPABASE_SERVICE_ROLE_KEY");
+
+  if (!url || !serviceRoleKey) {
+    return null;
+  }
+
+  return {
+    url,
+    serviceRoleKey
+  };
+}
+
+export function getSupabaseEnvStatus() {
+  return {
+    url: Boolean(readOptionalEnv("SUPABASE_URL")),
+    serviceRoleKey: Boolean(readOptionalEnv("SUPABASE_SERVICE_ROLE_KEY"))
   };
 }
 

@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { parseLarkEventPayload } from "@/lib/lark-events";
 import { replyTextToMessage } from "@/lib/lark";
 import { generateBotReply } from "@/lib/gemini";
+import { insertChatLog } from "@/lib/chat-logs";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -78,6 +79,24 @@ export async function POST(request: NextRequest) {
     await replyTextToMessage(message.message_id, reply, {
       replyInThread: Boolean(message.thread_id)
     });
+
+    try {
+      const senderId =
+        payload.event?.sender?.sender_id?.open_id ??
+        payload.event?.sender?.sender_id?.user_id ??
+        payload.event?.sender?.sender_id?.union_id ??
+        null;
+
+      await insertChatLog({
+        userId: senderId,
+        larkMessageId: message.message_id,
+        question: userText,
+        answer: reply,
+        sources: null
+      });
+    } catch (logError) {
+      console.error("[lark/events] chat log insert failed", logError);
+    }
 
     return NextResponse.json({ ok: true, replied: true });
   } catch (error) {
