@@ -405,6 +405,7 @@ function shouldSkipFile(task: Extract<SyncTask, { kind: "file" }>) {
     title.endsWith(".lnk") ||
     extension === "lnk" ||
     fileType === "shortcut" ||
+    extension === "json" ||
     title.includes("shortcut.lnk") ||
     title.includes("raw - shortcut.lnk")
   );
