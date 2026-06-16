@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { parseLarkEventPayload } from "@/lib/lark-events";
 import { replyTextToMessage } from "@/lib/lark";
-import { generateBotReply } from "@/lib/openai";
+import { generateBotReply } from "@/lib/gemini";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";

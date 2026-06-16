@@ -10,6 +10,11 @@ export type OpenAIEnv = {
   model: string;
 };
 
+export type GeminiEnv = {
+  apiKey: string;
+  model: string;
+};
+
 export function getLarkEnv(): LarkEnv {
   const appId = readRequiredEnv("LARK_APP_ID");
   const appSecret = readRequiredEnv("LARK_APP_SECRET");
@@ -31,17 +36,17 @@ export function getLarkEnvStatus() {
   };
 }
 
-export function getOpenAIEnv(): OpenAIEnv {
+export function getGeminiEnv(): GeminiEnv {
   return {
-    apiKey: readRequiredEnv("OPENAI_API_KEY"),
-    model: readOptionalEnv("OPENAI_MODEL") ?? "gpt-4.1-mini"
+    apiKey: readRequiredEnv("GEMINI_API_KEY"),
+    model: readOptionalEnv("GEMINI_MODEL") ?? "gemini-3.5-flash"
   };
 }
 
-export function getOpenAIEnvStatus() {
+export function getGeminiEnvStatus() {
   return {
-    apiKey: Boolean(readOptionalEnv("OPENAI_API_KEY")),
-    model: readOptionalEnv("OPENAI_MODEL") ?? "gpt-4.1-mini"
+    apiKey: Boolean(readOptionalEnv("GEMINI_API_KEY")),
+    model: readOptionalEnv("GEMINI_MODEL") ?? "gemini-3.5-flash"
   };
 }
 

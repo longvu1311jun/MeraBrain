@@ -1,4 +1,4 @@
-import { getLarkEnvStatus, getOpenAIEnvStatus } from "@/lib/env";
+import { getLarkEnvStatus, getGeminiEnvStatus } from "@/lib/env";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -8,6 +8,6 @@ export async function GET() {
     ok: true,
     service: "mera-lark-ai-bot",
     lark: getLarkEnvStatus(),
-    openai: getOpenAIEnvStatus()
+    gemini: getGeminiEnvStatus()
   });
 }
