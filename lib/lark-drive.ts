@@ -42,7 +42,7 @@ export async function listFolderChildren(folderToken: string, pageToken?: string
   const payload = await readJson(response, "list folder children");
   const data = (payload as { data?: Record<string, unknown> })?.data ?? payload;
   const childrenRaw = readPath(data, "children");
-  const rawItems = Array.isArray(childrenRaw) ? (childrenRaw as Record<string, unknown>[]) : findFirstArray(data);
+  const rawItems = extractRawItems(childrenRaw) ?? findFirstArray(data);
 
   return {
     items: rawItems.map(normalizeDriveNode).filter((item): item is LarkDriveNode => Boolean(item?.token)),
@@ -343,6 +343,27 @@ function findFirstArray(source: unknown, visited = new Set<unknown>()): Record<s
   }
 
   return [];
+}
+
+function extractRawItems(source: unknown): Record<string, unknown>[] | null {
+  if (!source || typeof source !== "object") {
+    return null;
+  }
+
+  if (Array.isArray(source)) {
+    return source as Record<string, unknown>[];
+  }
+
+  const values = Object.values(source as Record<string, unknown>);
+  if (!values.length) {
+    return [];
+  }
+
+  if (values.every((value) => value && typeof value === "object" && !Array.isArray(value))) {
+    return values as Record<string, unknown>[];
+  }
+
+  return null;
 }
 
 function readPath(source: unknown, pathExpression: string): unknown {
