@@ -61,7 +61,11 @@ async function syncFolderRecursive(
       itemCount: page.items.length,
       hasMore: page.hasMore,
       nextPageToken: page.nextPageToken,
-      rawKeys: Object.keys(page.raw)
+      rawKeys: Object.keys(page.raw),
+      childrenType: Array.isArray(page.childrenRaw) ? "array" : typeof page.childrenRaw,
+      childrenPreview: Array.isArray(page.childrenRaw)
+        ? page.childrenRaw.slice(0, 3)
+        : page.childrenRaw
     });
 
     for (const item of page.items) {

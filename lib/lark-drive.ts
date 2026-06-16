@@ -23,6 +23,7 @@ export type LarkDriveFolderPage = {
   nextPageToken: string | null;
   hasMore: boolean;
   raw: Record<string, unknown>;
+  childrenRaw: unknown;
 };
 
 export async function listFolderChildren(folderToken: string, pageToken?: string | null) {
@@ -40,14 +41,16 @@ export async function listFolderChildren(folderToken: string, pageToken?: string
 
   const payload = await readJson(response, "list folder children");
   const data = (payload as { data?: Record<string, unknown> })?.data ?? payload;
-  const rawItems = findFirstArray(data);
+  const childrenRaw = readPath(data, "children");
+  const rawItems = Array.isArray(childrenRaw) ? (childrenRaw as Record<string, unknown>[]) : findFirstArray(data);
 
   return {
     items: rawItems.map(normalizeDriveNode).filter((item): item is LarkDriveNode => Boolean(item?.token)),
     nextPageToken:
       readString(data, ["page_token", "next_page_token", "nextPageToken"]) ?? null,
     hasMore: readBoolean(data, ["has_more", "hasMore"]) ?? false,
-    raw: data as Record<string, unknown>
+    raw: data as Record<string, unknown>,
+    childrenRaw
   } satisfies LarkDriveFolderPage;
 }
 
