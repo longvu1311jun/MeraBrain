@@ -5,6 +5,11 @@ export type LarkEnv = {
   encryptKey?: string;
 };
 
+export type OpenAIEnv = {
+  apiKey: string;
+  model: string;
+};
+
 export function getLarkEnv(): LarkEnv {
   const appId = readRequiredEnv("LARK_APP_ID");
   const appSecret = readRequiredEnv("LARK_APP_SECRET");
@@ -23,6 +28,20 @@ export function getLarkEnvStatus() {
     appSecret: Boolean(readOptionalEnv("LARK_APP_SECRET")),
     verificationToken: Boolean(readOptionalEnv("LARK_VERIFICATION_TOKEN")),
     encryptKey: Boolean(readOptionalEnv("LARK_ENCRYPT_KEY"))
+  };
+}
+
+export function getOpenAIEnv(): OpenAIEnv {
+  return {
+    apiKey: readRequiredEnv("OPENAI_API_KEY"),
+    model: readOptionalEnv("OPENAI_MODEL") ?? "gpt-4.1-mini"
+  };
+}
+
+export function getOpenAIEnvStatus() {
+  return {
+    apiKey: Boolean(readOptionalEnv("OPENAI_API_KEY")),
+    model: readOptionalEnv("OPENAI_MODEL") ?? "gpt-4.1-mini"
   };
 }
 

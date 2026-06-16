@@ -1,90 +1,83 @@
-import { parseLarkEventPayload, type LarkEventPayload } from "@/lib/lark-events";
+import { NextRequest, NextResponse } from "next/server";
+import { parseLarkEventPayload } from "@/lib/lark-events";
 import { replyTextToMessage } from "@/lib/lark";
+import { generateBotReply } from "@/lib/openai";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 export async function GET() {
-  return Response.json({
-    ok: true,
-    endpoint: "lark-events",
-    method: "POST"
-  });
+  return NextResponse.json({ ok: true, endpoint: "lark-events", method: "POST" });
 }
 
-export async function POST(request: Request) {
+export async function POST(request: NextRequest) {
   const rawBody = await request.text();
 
-  let payload: LarkEventPayload;
+  let payload;
   try {
     payload = parseLarkEventPayload(rawBody, request.headers);
   } catch (error) {
     console.error("[lark/events] invalid payload", error);
-    return Response.json({ ok: false, error: "invalid_lark_event" }, { status: 400 });
+    return NextResponse.json({ ok: false, error: "invalid_lark_event" }, { status: 400 });
   }
 
   if (payload.type === "url_verification" && payload.challenge) {
-    return Response.json({ challenge: payload.challenge });
+    return NextResponse.json({ challenge: payload.challenge });
   }
 
   const eventType = payload.header?.event_type;
   if (eventType !== "im.message.receive_v1") {
-    return Response.json({ ok: true, ignored: true, eventType });
+    return NextResponse.json({ ok: true, ignored: true, eventType });
   }
 
   const message = payload.event?.message;
   if (!message?.message_id) {
-    return Response.json({ ok: true, ignored: true, reason: "missing_message_id" });
+    return NextResponse.json({ ok: true, ignored: true, reason: "missing_message_id" });
+  }
+
+  const senderType = payload.event?.sender?.sender_type;
+  if (senderType === "bot") {
+    return NextResponse.json({ ok: true, ignored: true, reason: "bot_message" });
+  }
+
+  const userText = extractMessageText(message.content, message.mentions);
+  if (!userText) {
+    return NextResponse.json({ ok: true, ignored: true, reason: "empty_text" });
   }
 
   try {
-    const reply = buildEchoReply(payload);
+    const reply = await generateBotReply(userText);
     await replyTextToMessage(message.message_id, reply, {
       replyInThread: Boolean(message.thread_id)
     });
 
-    return Response.json({ ok: true, replied: true });
+    return NextResponse.json({ ok: true, replied: true });
   } catch (error) {
-    console.error("[lark/events] reply failed", error);
-    return Response.json({ ok: false, error: "reply_failed" }, { status: 500 });
+    console.error("[lark/events] ai reply failed", error);
+    return NextResponse.json({ ok: false, error: "reply_failed" }, { status: 500 });
   }
 }
 
-function buildEchoReply(payload: LarkEventPayload) {
-  const message = payload.event?.message;
-  const messageType = message?.message_type ?? "unknown";
-
-  if (messageType !== "text") {
-    return `Mình đã nhận tin nhắn loại "${messageType}". Hiện tại bot test chỉ echo tin nhắn text.`;
-  }
-
-  const text = getTextContent(message?.content);
-  const cleanText = removeMentionKeys(text, message?.mentions).trim();
-
-  return cleanText
-    ? `Mình đã nhận được tin nhắn của bạn: ${cleanText}`
-    : "Mình đã nhận được tin nhắn text của bạn.";
-}
-
-function getTextContent(content: string | undefined) {
+function extractMessageText(
+  content: string | undefined,
+  mentions: Array<{ key?: string }> | undefined
+) {
   if (!content) {
     return "";
   }
 
+  let text = content;
   try {
     const parsed = JSON.parse(content) as { text?: unknown };
-    return typeof parsed.text === "string" ? parsed.text : content;
+    if (typeof parsed.text === "string") {
+      text = parsed.text;
+    }
   } catch {
-    return content;
+    text = content;
   }
-}
 
-function removeMentionKeys(
-  text: string,
-  mentions: Array<{ key?: string }> | undefined
-) {
   if (!mentions?.length) {
-    return text;
+    return text.trim();
   }
 
   return mentions.reduce((current, mention) => {
@@ -93,5 +86,5 @@ function removeMentionKeys(
     }
 
     return current.replaceAll(mention.key, "").trim();
-  }, text);
+  }, text).trim();
 }
