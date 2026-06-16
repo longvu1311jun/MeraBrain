@@ -20,6 +20,11 @@ export type SupabaseEnv = {
   serviceRoleKey: string;
 };
 
+export type WikiEnv = {
+  folderToken: string;
+  syncSecret?: string;
+};
+
 export function getLarkEnv(): LarkEnv {
   const appId = readRequiredEnv("LARK_APP_ID");
   const appSecret = readRequiredEnv("LARK_APP_SECRET");
@@ -73,6 +78,25 @@ export function getSupabaseEnvStatus() {
   return {
     url: Boolean(readOptionalEnv("SUPABASE_URL")),
     serviceRoleKey: Boolean(readOptionalEnv("SUPABASE_SERVICE_ROLE_KEY"))
+  };
+}
+
+export function getWikiEnv(): WikiEnv | null {
+  const folderToken = readOptionalEnv("LARK_WIKI_FOLDER_TOKEN");
+  if (!folderToken) {
+    return null;
+  }
+
+  return {
+    folderToken,
+    syncSecret: readOptionalEnv("LARK_WIKI_SYNC_SECRET")
+  };
+}
+
+export function getWikiEnvStatus() {
+  return {
+    folderToken: Boolean(readOptionalEnv("LARK_WIKI_FOLDER_TOKEN")),
+    syncSecret: Boolean(readOptionalEnv("LARK_WIKI_SYNC_SECRET"))
   };
 }
 

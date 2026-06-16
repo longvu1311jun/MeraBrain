@@ -15,7 +15,7 @@ export async function replyTextToMessage(
   text: string,
   options: { replyInThread?: boolean } = {}
 ) {
-  const token = await getTenantAccessToken();
+  const token = await getLarkTenantAccessToken();
   const uuid = createStableReplyUuid(messageId);
   const response = await fetch(
     `${LARK_OPEN_API_BASE_URL}/im/v1/messages/${encodeURIComponent(messageId)}/reply`,
@@ -38,7 +38,7 @@ export async function replyTextToMessage(
 }
 
 export async function sendTextToChat(chatId: string, text: string) {
-  const token = await getTenantAccessToken();
+  const token = await getLarkTenantAccessToken();
   const response = await fetch(
     `${LARK_OPEN_API_BASE_URL}/im/v1/messages?receive_id_type=chat_id`,
     {
@@ -59,7 +59,7 @@ export async function sendTextToChat(chatId: string, text: string) {
   return parseLarkJsonResponse(response, "send message");
 }
 
-async function getTenantAccessToken() {
+export async function getLarkTenantAccessToken() {
   if (tenantTokenCache && tenantTokenCache.expiresAt > Date.now()) {
     return tenantTokenCache.token;
   }

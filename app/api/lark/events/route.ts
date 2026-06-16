@@ -1,8 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { parseLarkEventPayload } from "@/lib/lark-events";
 import { replyTextToMessage } from "@/lib/lark";
-import { generateBotReply } from "@/lib/gemini";
 import { insertChatLog } from "@/lib/chat-logs";
+import { answerQuestionFromWiki } from "@/lib/wiki-answer";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -70,13 +70,14 @@ export async function POST(request: NextRequest) {
   }
 
   try {
-    const reply = await generateBotReply(userText);
+    const wikiAnswer = await answerQuestionFromWiki(userText);
     console.log("[lark/events] generated reply", {
       eventId: payload.header?.event_id,
       messageId: message.message_id,
-      replyLength: reply.length
+      replyLength: wikiAnswer.answer.length,
+      usedContext: wikiAnswer.usedContext
     });
-    await replyTextToMessage(message.message_id, reply, {
+    await replyTextToMessage(message.message_id, wikiAnswer.answer, {
       replyInThread: Boolean(message.thread_id)
     });
 
@@ -91,8 +92,13 @@ export async function POST(request: NextRequest) {
         userId: senderId,
         larkMessageId: message.message_id,
         question: userText,
-        answer: reply,
-        sources: null
+        answer: wikiAnswer.answer,
+        sources: wikiAnswer.matches.map((match) => ({
+          title: match.title,
+          url: match.url,
+          similarity: match.similarity,
+          chunk_text: match.chunk_text
+        }))
       });
     } catch (logError) {
       console.error("[lark/events] chat log insert failed", logError);
