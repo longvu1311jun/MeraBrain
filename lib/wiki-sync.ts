@@ -223,6 +223,16 @@ async function processFileTask(task: Extract<SyncTask, { kind: "file" }>) {
       kind: task.nodeKind
     });
 
+    if (shouldSkipFile(task)) {
+      console.log("[wiki-sync] skipped unsupported file", {
+        token: task.token,
+        title: task.title,
+        fileType: task.fileType,
+        extension: task.extension
+      });
+      return { indexed: false, error: null as string | null };
+    }
+
     const rawText = await extractDriveFileText({
       title: task.title,
       token: task.token,
@@ -379,5 +389,23 @@ function splitTextIntoChunks(text: string, maxChars: number, overlapChars: numbe
 }
 
 function normalizeText(text: string) {
-  return text.replace(/\r\n/g, "\n").replace(/\n{3,}/g, "\n\n").trim();
+  return text
+    .replace(/\u0000/g, "")
+    .replace(/\r\n/g, "\n")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
+}
+
+function shouldSkipFile(task: Extract<SyncTask, { kind: "file" }>) {
+  const title = task.title.toLowerCase();
+  const extension = (task.extension ?? "").toLowerCase();
+  const fileType = (task.fileType ?? "").toLowerCase();
+
+  return (
+    title.endsWith(".lnk") ||
+    extension === "lnk" ||
+    fileType === "shortcut" ||
+    title.includes("shortcut.lnk") ||
+    title.includes("raw - shortcut.lnk")
+  );
 }
