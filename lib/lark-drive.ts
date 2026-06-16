@@ -40,7 +40,7 @@ export async function listFolderChildren(folderToken: string, pageToken?: string
 
   const payload = await readJson(response, "list folder children");
   const data = (payload as { data?: Record<string, unknown> })?.data ?? payload;
-  const rawItems = getArrayFromAny(data, ["items", "children", "files", "data"]);
+  const rawItems = findFirstArray(data);
 
   return {
     items: rawItems.map(normalizeDriveNode).filter((item): item is LarkDriveNode => Boolean(item?.token)),
@@ -168,12 +168,33 @@ function extractSpreadsheetText(bytes: Buffer) {
 
 function normalizeDriveNode(raw: Record<string, unknown>): LarkDriveNode | null {
   const token =
-    readString(raw, ["token", "file_token", "doc_token", "folder_token", "id"]) ?? "";
+    readString(raw, [
+      "token",
+      "file_token",
+      "doc_token",
+      "folder_token",
+      "id",
+      "obj_token",
+      "document_id",
+      "fileToken",
+      "folderToken"
+    ]) ?? "";
   const title =
-    readString(raw, ["title", "name", "file_name", "obj_name", "document_title"]) ?? token;
-  const url = readString(raw, ["url", "web_url", "link"]);
-  const kind = normalizeKind(readString(raw, ["type", "obj_type", "node_type", "file_type"]));
-  const extension = readString(raw, ["extension", "file_extension"]);
+    readString(raw, ["title", "name", "file_name", "obj_name", "document_title", "display_name"]) ??
+    token;
+  const url = readString(raw, ["url", "web_url", "link", "open_url", "view_url"]);
+  const kind = normalizeKind(
+    readString(raw, [
+      "type",
+      "obj_type",
+      "node_type",
+      "file_type",
+      "entity_type",
+      "kind",
+      "resource_type"
+    ])
+  );
+  const extension = readString(raw, ["extension", "file_extension", "suffix"]);
 
   if (!token) {
     return null;
@@ -295,6 +316,30 @@ function readBoolean(source: unknown, keys: string[]) {
   }
 
   return null;
+}
+
+function findFirstArray(source: unknown, visited = new Set<unknown>()): Record<string, unknown>[] {
+  if (!source || typeof source !== "object" || visited.has(source)) {
+    return [];
+  }
+
+  visited.add(source);
+  if (Array.isArray(source)) {
+    return source as Record<string, unknown>[];
+  }
+
+  for (const value of Object.values(source as Record<string, unknown>)) {
+    if (Array.isArray(value)) {
+      return value as Record<string, unknown>[];
+    }
+
+    const nested = findFirstArray(value, visited);
+    if (nested.length) {
+      return nested;
+    }
+  }
+
+  return [];
 }
 
 function readPath(source: unknown, pathExpression: string): unknown {

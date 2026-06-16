@@ -55,9 +55,24 @@ async function syncFolderRecursive(
   let pageToken: string | null = null;
   do {
     const page = await listFolderChildren(folderToken, pageToken);
+    console.log("[wiki-sync] folder page", {
+      folderToken,
+      pageToken,
+      itemCount: page.items.length,
+      hasMore: page.hasMore,
+      nextPageToken: page.nextPageToken,
+      rawKeys: Object.keys(page.raw)
+    });
 
     for (const item of page.items) {
       summary.scanned += 1;
+      console.log("[wiki-sync] found item", {
+        kind: item.kind,
+        token: item.token,
+        title: item.title,
+        fileType: item.fileType,
+        extension: item.extension
+      });
       if (item.kind === "folder") {
         await syncFolderRecursive(item.token, visitedFolders, summary);
         continue;
@@ -72,6 +87,13 @@ async function syncFolderRecursive(
 
 async function indexDriveNode(node: LarkDriveNode, summary: WikiSyncSummary) {
   try {
+    console.log("[wiki-sync] indexing node", {
+      token: node.token,
+      title: node.title,
+      kind: node.kind,
+      fileType: node.fileType,
+      extension: node.extension
+    });
     const rawText = await extractDriveFileText({
       title: node.title,
       token: node.token,
@@ -82,6 +104,10 @@ async function indexDriveNode(node: LarkDriveNode, summary: WikiSyncSummary) {
     const normalizedText = normalizeText(rawText);
     if (!normalizedText) {
       summary.skipped += 1;
+      console.log("[wiki-sync] skipped empty text", {
+        token: node.token,
+        title: node.title
+      });
       return;
     }
 
@@ -115,6 +141,11 @@ async function indexDriveNode(node: LarkDriveNode, summary: WikiSyncSummary) {
     await replaceWikiChunks(documentRow.id, indexedChunks);
     summary.indexed += 1;
   } catch (error) {
+    console.error("[wiki-sync] index failed", {
+      token: node.token,
+      title: node.title,
+      error: error instanceof Error ? error.message : String(error)
+    });
     summary.errors.push({
       title: node.title,
       token: node.token,
